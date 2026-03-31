@@ -1,6 +1,5 @@
-import crypto from "node:crypto";
-import path from "node:path";
 import type { AgentMessage, StreamFn } from "@mariozechner/pi-agent-core";
+import path from "node:path";
 import type { OpenClawConfig } from "../config/config.js";
 import { resolveStateDir } from "../config/paths.js";
 import { resolveUserPath } from "../utils.js";
@@ -9,6 +8,7 @@ import { safeJsonStringify } from "../utils/safe-json.js";
 import { redactImageDataForDiagnostics } from "./payload-redaction.js";
 import { getQueuedFileWriter, type QueuedFileWriter } from "./queued-file-writer.js";
 import { buildAgentTraceBase } from "./trace-base.js";
+import { digestTraceValue, summarizeTraceMessages } from "./trace-message-summary.js";
 
 export type CacheTraceStage =
   | "session:loaded"
@@ -104,77 +104,6 @@ function getWriter(filePath: string): CacheTraceWriter {
   return getQueuedFileWriter(writers, filePath);
 }
 
-function stableStringify(value: unknown, seen: WeakSet<object> = new WeakSet()): string {
-  if (value === null || value === undefined) {
-    return String(value);
-  }
-  if (typeof value === "number" && !Number.isFinite(value)) {
-    return JSON.stringify(String(value));
-  }
-  if (typeof value === "bigint") {
-    return JSON.stringify(value.toString());
-  }
-  if (typeof value !== "object") {
-    return JSON.stringify(value) ?? "null";
-  }
-  if (seen.has(value)) {
-    return JSON.stringify("[Circular]");
-  }
-  seen.add(value);
-  if (value instanceof Error) {
-    return stableStringify(
-      {
-        name: value.name,
-        message: value.message,
-        stack: value.stack,
-      },
-      seen,
-    );
-  }
-  if (value instanceof Uint8Array) {
-    return stableStringify(
-      {
-        type: "Uint8Array",
-        data: Buffer.from(value).toString("base64"),
-      },
-      seen,
-    );
-  }
-  if (Array.isArray(value)) {
-    const serializedEntries: string[] = [];
-    for (const entry of value) {
-      serializedEntries.push(stableStringify(entry, seen));
-    }
-    return `[${serializedEntries.join(",")}]`;
-  }
-  const record = value as Record<string, unknown>;
-  const serializedFields: string[] = [];
-  for (const key of Object.keys(record).toSorted()) {
-    serializedFields.push(`${JSON.stringify(key)}:${stableStringify(record[key], seen)}`);
-  }
-  return `{${serializedFields.join(",")}}`;
-}
-
-function digest(value: unknown): string {
-  const serialized = stableStringify(value);
-  return crypto.createHash("sha256").update(serialized).digest("hex");
-}
-
-function summarizeMessages(messages: AgentMessage[]): {
-  messageCount: number;
-  messageRoles: Array<string | undefined>;
-  messageFingerprints: string[];
-  messagesDigest: string;
-} {
-  const messageFingerprints = messages.map((msg) => digest(msg));
-  return {
-    messageCount: messages.length,
-    messageRoles: messages.map((msg) => (msg as { role?: string }).role),
-    messageFingerprints,
-    messagesDigest: digest(messageFingerprints.join("|")),
-  };
-}
-
 export function createCacheTrace(params: CacheTraceInit): CacheTrace | null {
   const cfg = resolveCacheTraceConfig(params);
   if (!cfg.enabled) {
@@ -199,7 +128,7 @@ export function createCacheTrace(params: CacheTraceInit): CacheTrace | null {
     }
     if (payload.system !== undefined && cfg.includeSystem) {
       event.system = payload.system;
-      event.systemDigest = digest(payload.system);
+      event.systemDigest = digestTraceValue(payload.system);
     }
     if (payload.options) {
       event.options = redactImageDataForDiagnostics(payload.options) as Record<string, unknown>;
@@ -210,7 +139,7 @@ export function createCacheTrace(params: CacheTraceInit): CacheTrace | null {
 
     const messages = payload.messages;
     if (Array.isArray(messages)) {
-      const summary = summarizeMessages(messages);
+      const summary = summarizeTraceMessages(messages);
       event.messageCount = summary.messageCount;
       event.messageRoles = summary.messageRoles;
       event.messageFingerprints = summary.messageFingerprints;

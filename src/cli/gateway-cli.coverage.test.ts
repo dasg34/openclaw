@@ -247,4 +247,43 @@ describe("gateway-cli coverage", () => {
       expect(startGatewayServer).toHaveBeenCalledWith(19001, expect.anything());
     });
   });
+
+  it("maps llm input log flags to env vars", async () => {
+    await withEnvOverride(
+      {
+        OPENCLAW_LLM_INPUT_LOG: undefined,
+        OPENCLAW_LLM_INPUT_LOG_FILE: undefined,
+      },
+      async () => {
+        resetRuntimeCapture();
+        startGatewayServer.mockRejectedValueOnce(new Error("nope"));
+        const beforeSigterm = new Set(process.listeners("SIGTERM"));
+        const beforeSigint = new Set(process.listeners("SIGINT"));
+        await expectGatewayExit([
+          "gateway",
+          "--port",
+          "18789",
+          "--token",
+          "test-token",
+          "--allow-unconfigured",
+          "--llm-input-log",
+          "--llm-input-log-path",
+          "/tmp/llm-input.jsonl",
+        ]);
+        for (const listener of process.listeners("SIGTERM")) {
+          if (!beforeSigterm.has(listener)) {
+            process.removeListener("SIGTERM", listener);
+          }
+        }
+        for (const listener of process.listeners("SIGINT")) {
+          if (!beforeSigint.has(listener)) {
+            process.removeListener("SIGINT", listener);
+          }
+        }
+
+        expect(process.env.OPENCLAW_LLM_INPUT_LOG).toBe("1");
+        expect(process.env.OPENCLAW_LLM_INPUT_LOG_FILE).toBe("/tmp/llm-input.jsonl");
+      },
+    );
+  });
 });

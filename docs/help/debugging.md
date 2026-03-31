@@ -1,6 +1,7 @@
 ---
-summary: "Debugging tools: watch mode, raw model streams, and tracing reasoning leakage"
+summary: "Debugging tools: final LLM input logs, raw model streams, and tracing reasoning leakage"
 read_when:
+  - You need to inspect the exact final messages sent to the LLM
   - You need to inspect raw model output for reasoning leakage
   - You want to run the Gateway in watch mode while iterating
   - You need a repeatable debugging workflow
@@ -103,6 +104,46 @@ Tip: if a non‑dev gateway is already running (launchd/systemd), stop it first:
 ```bash
 openclaw gateway stop
 ```
+
+## Final LLM input logging
+
+OpenClaw can log the **final outbound LLM input** just before each provider
+call. This is useful when you want the exact `messages` set after history
+cleanup, prompt shaping, tool-result repair, and provider-specific sanitization.
+
+Enable it via CLI:
+
+```bash
+pnpm gateway:watch --llm-input-log
+```
+
+Optional path override:
+
+```bash
+pnpm gateway:watch --llm-input-log --llm-input-log-path ~/.openclaw/logs/llm-input.jsonl
+```
+
+Equivalent env vars:
+
+```bash
+OPENCLAW_LLM_INPUT_LOG=1
+OPENCLAW_LLM_INPUT_LOG_FILE=~/.openclaw/logs/llm-input.jsonl
+```
+
+Optional advanced env toggles:
+
+```bash
+OPENCLAW_LLM_INPUT_LOG_SYSTEM=1
+OPENCLAW_LLM_INPUT_LOG_OPTIONS=1
+```
+
+Default file:
+
+`~/.openclaw/logs/llm-input.jsonl`
+
+Each line corresponds to one outbound model call and always includes the final
+redacted `messages` array. `system` and request `options` are only included
+when you explicitly enable them.
 
 ## Raw stream logging (OpenClaw)
 

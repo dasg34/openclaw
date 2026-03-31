@@ -1,8 +1,9 @@
+import type { Command } from "commander";
 import fs from "node:fs";
 import path from "node:path";
-import type { Command } from "commander";
-import { readSecretFromFile } from "../../acp/secret-file.js";
 import type { GatewayAuthMode, GatewayTailscaleMode } from "../../config/config.js";
+import type { GatewayWsLogStyle } from "../../gateway/ws-logging.js";
+import { readSecretFromFile } from "../../acp/secret-file.js";
 import {
   CONFIG_PATH,
   loadConfig,
@@ -13,7 +14,6 @@ import {
 import { hasConfiguredSecretInput } from "../../config/types.secrets.js";
 import { resolveGatewayAuth } from "../../gateway/auth.js";
 import { startGatewayServer } from "../../gateway/server.js";
-import type { GatewayWsLogStyle } from "../../gateway/ws-logging.js";
 import { setGatewayWsLogStyle } from "../../gateway/ws-logging.js";
 import { setVerbose } from "../../globals.js";
 import { GatewayLockError } from "../../infra/gateway-lock.js";
@@ -52,6 +52,8 @@ type GatewayRunOpts = {
   compact?: boolean;
   rawStream?: boolean;
   rawStreamPath?: unknown;
+  llmInputLog?: boolean;
+  llmInputLogPath?: unknown;
   dev?: boolean;
   reset?: boolean;
 };
@@ -68,6 +70,7 @@ const GATEWAY_RUN_VALUE_KEYS = [
   "tailscale",
   "wsLog",
   "rawStreamPath",
+  "llmInputLogPath",
 ] as const;
 
 const GATEWAY_RUN_BOOLEAN_KEYS = [
@@ -80,6 +83,7 @@ const GATEWAY_RUN_BOOLEAN_KEYS = [
   "claudeCliLogs",
   "compact",
   "rawStream",
+  "llmInputLog",
 ] as const;
 
 const GATEWAY_AUTH_MODES: readonly GatewayAuthMode[] = [
@@ -192,6 +196,13 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
   const rawStreamPath = toOptionString(opts.rawStreamPath);
   if (rawStreamPath) {
     process.env.OPENCLAW_RAW_STREAM_PATH = rawStreamPath;
+  }
+  if (opts.llmInputLog) {
+    process.env.OPENCLAW_LLM_INPUT_LOG = "1";
+  }
+  const llmInputLogPath = toOptionString(opts.llmInputLogPath);
+  if (llmInputLogPath) {
+    process.env.OPENCLAW_LLM_INPUT_LOG_FILE = llmInputLogPath;
   }
 
   if (devMode) {
@@ -502,6 +513,8 @@ export function addGatewayRunCommand(cmd: Command): Command {
     .option("--compact", 'Alias for "--ws-log compact"', false)
     .option("--raw-stream", "Log raw model stream events to jsonl", false)
     .option("--raw-stream-path <path>", "Raw stream jsonl path")
+    .option("--llm-input-log", "Log final outbound LLM input messages to jsonl", false)
+    .option("--llm-input-log-path <path>", "LLM input jsonl path")
     .action(async (opts, command) => {
       await runGatewayCommand(resolveGatewayRunOptions(opts, command));
     });
