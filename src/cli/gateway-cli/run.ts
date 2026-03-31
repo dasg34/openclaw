@@ -513,8 +513,8 @@ export function addGatewayRunCommand(cmd: Command): Command {
     .option("--compact", 'Alias for "--ws-log compact"', false)
     .option("--raw-stream", "Log raw model stream events to jsonl", false)
     .option("--raw-stream-path <path>", "Raw stream jsonl path")
-    .option("--llm-input-log", "Log final outbound LLM input messages to jsonl", false)
-    .option("--llm-input-log-path <path>", "LLM input jsonl path")
+    .option("--llm-input-log", "Log final outbound LLM request payloads to jsonl", false)
+    .option("--llm-input-log-path <path>", "LLM request payload jsonl path")
     .action(async (opts, command) => {
       await runGatewayCommand(resolveGatewayRunOptions(opts, command));
     });

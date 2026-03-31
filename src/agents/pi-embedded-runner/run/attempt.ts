@@ -1303,9 +1303,6 @@ export async function runEmbeddedAttempt(
         });
         activeSession.agent.streamFn = cacheTrace.wrapStreamFn(activeSession.agent.streamFn);
       }
-      if (llmInputLog) {
-        activeSession.agent.streamFn = llmInputLog.wrapStreamFn(activeSession.agent.streamFn);
-      }
 
       // Copilot/Claude can reject persisted `thinking` blocks (e.g. thinkingSignature:"reasoning_text")
       // on *any* follow-up provider call (including tool continuations). Wrap the stream function
@@ -1397,6 +1394,9 @@ export async function runEmbeddedAttempt(
         activeSession.agent.streamFn = anthropicPayloadLogger.wrapStreamFn(
           activeSession.agent.streamFn,
         );
+      }
+      if (llmInputLog) {
+        activeSession.agent.streamFn = llmInputLog.wrapStreamFn(activeSession.agent.streamFn);
       }
 
       try {

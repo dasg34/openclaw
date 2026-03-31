@@ -282,19 +282,11 @@ export async function startGatewayServer(
   });
   logAcceptedEnvOption({
     key: "OPENCLAW_LLM_INPUT_LOG",
-    description: "llm input logging enabled",
+    description: "llm request payload logging enabled",
   });
   logAcceptedEnvOption({
     key: "OPENCLAW_LLM_INPUT_LOG_FILE",
-    description: "llm input log path override",
-  });
-  logAcceptedEnvOption({
-    key: "OPENCLAW_LLM_INPUT_LOG_SYSTEM",
-    description: "llm input system prompt capture enabled",
-  });
-  logAcceptedEnvOption({
-    key: "OPENCLAW_LLM_INPUT_LOG_OPTIONS",
-    description: "llm input options capture enabled",
+    description: "llm request payload log path override",
   });
 
   let configSnapshot = await readConfigFileSnapshot();

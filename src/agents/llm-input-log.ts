@@ -1,4 +1,4 @@
-import type { AgentMessage, StreamFn } from "@mariozechner/pi-agent-core";
+import type { StreamFn } from "@mariozechner/pi-agent-core";
 import path from "node:path";
 import { resolveStateDir } from "../config/paths.js";
 import { resolveUserPath } from "../utils.js";
@@ -7,12 +7,12 @@ import { safeJsonStringify } from "../utils/safe-json.js";
 import { redactImageDataForDiagnostics } from "./payload-redaction.js";
 import { getQueuedFileWriter, type QueuedFileWriter } from "./queued-file-writer.js";
 import { buildAgentTraceBase } from "./trace-base.js";
-import { digestTraceValue, summarizeTraceMessages } from "./trace-message-summary.js";
+import { digestTraceValue } from "./trace-message-summary.js";
 
 export type LlmInputLogEvent = {
   ts: string;
   seq: number;
-  kind: "llm_input";
+  kind: "llm_wire_payload";
   runId?: string;
   sessionId?: string;
   sessionKey?: string;
@@ -21,13 +21,8 @@ export type LlmInputLogEvent = {
   modelApi?: string | null;
   workspaceDir?: string;
   model?: Record<string, unknown>;
-  messages: AgentMessage[];
-  messageCount: number;
-  messageRoles: Array<string | undefined>;
-  messagesDigest: string;
-  system?: unknown;
-  systemDigest?: string;
-  options?: Record<string, unknown>;
+  payload: unknown;
+  payloadDigest: string;
 };
 
 export type LlmInputLog = {
@@ -51,8 +46,6 @@ type LlmInputLogInit = {
 type LlmInputLogConfig = {
   enabled: boolean;
   filePath: string;
-  includeSystem: boolean;
-  includeOptions: boolean;
 };
 
 const writers = new Map<string, QueuedFileWriter>();
@@ -64,13 +57,9 @@ function resolveLlmInputLogConfig(params: LlmInputLogInit): LlmInputLogConfig {
   const filePath = fileOverride
     ? resolveUserPath(fileOverride)
     : path.join(resolveStateDir(env), "logs", "llm-input.jsonl");
-  const includeSystem = parseBooleanValue(env.OPENCLAW_LLM_INPUT_LOG_SYSTEM) ?? false;
-  const includeOptions = parseBooleanValue(env.OPENCLAW_LLM_INPUT_LOG_OPTIONS) ?? false;
   return {
     enabled,
     filePath,
-    includeSystem,
-    includeOptions,
   };
 }
 
@@ -86,46 +75,43 @@ export function createLlmInputLog(params: LlmInputLogInit): LlmInputLog | null {
 
   const writer = params.writer ?? getWriter(cfg.filePath);
   let seq = 0;
-  const base: Omit<
-    LlmInputLogEvent,
-    "ts" | "seq" | "kind" | "messages" | "messageCount" | "messageRoles" | "messagesDigest"
-  > = buildAgentTraceBase(params);
+  const base: Omit<LlmInputLogEvent, "ts" | "seq" | "kind" | "payload" | "payloadDigest"> =
+    buildAgentTraceBase(params);
 
   const wrapStreamFn: LlmInputLog["wrapStreamFn"] = (streamFn) => {
     const wrapped: StreamFn = (model, context, options) => {
-      const contextRecord = context as {
-        system?: unknown;
-        messages?: AgentMessage[];
-      };
-      const messages = Array.isArray(contextRecord.messages) ? contextRecord.messages : [];
-      const summary = summarizeTraceMessages(messages);
-      const event: LlmInputLogEvent = {
-        ...base,
-        ts: new Date().toISOString(),
-        seq: (seq += 1),
-        kind: "llm_input",
-        model: {
-          id: model?.id,
-          provider: model?.provider,
-          api: model?.api,
+      const originalOnPayload = options?.onPayload;
+      return streamFn(model, context, {
+        ...options,
+        onPayload: (payload, payloadModel) => {
+          const effectiveModel = payloadModel ?? model;
+          const redactedPayload = redactImageDataForDiagnostics(payload);
+          const event: LlmInputLogEvent = {
+            ...base,
+            provider:
+              typeof effectiveModel?.provider === "string"
+                ? effectiveModel.provider
+                : base.provider,
+            modelId: typeof effectiveModel?.id === "string" ? effectiveModel.id : base.modelId,
+            modelApi: typeof effectiveModel?.api === "string" ? effectiveModel.api : base.modelApi,
+            ts: new Date().toISOString(),
+            seq: (seq += 1),
+            kind: "llm_wire_payload",
+            model: {
+              id: effectiveModel?.id,
+              provider: effectiveModel?.provider,
+              api: effectiveModel?.api,
+            },
+            payload: redactedPayload,
+            payloadDigest: digestTraceValue(redactedPayload),
+          };
+          const line = safeJsonStringify(event);
+          if (line) {
+            writer.write(`${line}\n`);
+          }
+          return originalOnPayload?.(payload, payloadModel);
         },
-        messages: redactImageDataForDiagnostics(messages) as AgentMessage[],
-        messageCount: summary.messageCount,
-        messageRoles: summary.messageRoles,
-        messagesDigest: summary.messagesDigest,
-      };
-      if (cfg.includeSystem && contextRecord.system !== undefined) {
-        event.system = redactImageDataForDiagnostics(contextRecord.system);
-        event.systemDigest = digestTraceValue(contextRecord.system);
-      }
-      if (cfg.includeOptions && options) {
-        event.options = redactImageDataForDiagnostics(options) as Record<string, unknown>;
-      }
-      const line = safeJsonStringify(event);
-      if (line) {
-        writer.write(`${line}\n`);
-      }
-      return streamFn(model, context, options);
+      });
     };
     return wrapped;
   };
